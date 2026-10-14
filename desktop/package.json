@@ -1,0 +1,41 @@
+{
+  "name": "e-pvc-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pembungkus desktop (Electron) untuk aplikasi n2N / E-pvc",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "cross-env ELECTRON_DEV=1 electron .",
+    "dist": "electron-builder --win"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.n2n.epvc",
+    "productName": "n2N E-pvc",
+    "directories": {
+      "output": "release"
+    },
+    "files": ["main.js"],
+    "extraResources": [
+      { "from": "../backend/dist", "to": "backend/dist" },
+      { "from": "../backend/node_modules", "to": "backend/node_modules" },
+      { "from": "../backend/prisma", "to": "backend/prisma" },
+      { "from": "../backend/package.json", "to": "backend/package.json" },
+      { "from": "../frontend/dist", "to": "frontend/dist" }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "n2N E-pvc"
+    }
+  }
+}

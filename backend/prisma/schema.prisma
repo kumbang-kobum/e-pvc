@@ -1,0 +1,476 @@
+// Skema database aplikasi penjualan plafon PVC & rangka baja (n2N / E-pvc)
+// DB: MariaDB (InnoDB, utf8mb4). Uang = Decimal(15,2), Qty = Decimal(15,3).
+
+generator client {
+  provider = "prisma-client-js"
+  // "windows" diperlukan agar engine Windows ikut ter-generate saat packaging
+  // (hapus bila build langsung di Windows — "native" sudah cukup).
+  binaryTargets = ["native", "windows"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ========================= ENUM =========================
+
+enum Role {
+  admin
+  kasir
+}
+
+enum PriceTier {
+  aplikator
+  reseller
+  umum
+}
+
+enum PaymentMethod {
+  cash
+  transfer
+}
+
+enum PaymentStatus {
+  lunas
+  dp
+  belum
+}
+
+enum MovementType {
+  in
+  out
+  adjust
+  retur_in
+  retur_out
+}
+
+enum RefType {
+  purchase
+  sale
+  opname
+  retur
+}
+
+enum ExpenseType {
+  harian
+  bulanan
+}
+
+enum ReturnType {
+  jual
+  beli
+}
+
+// ========================= PENGATURAN & USER =========================
+
+model Setting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  nama         String
+  username     String    @unique
+  passwordHash String    @map("password_hash")
+  role         Role      @default(kasir)
+  aktif        Boolean   @default(true)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  purchases   Purchase[]
+  sales       Sale[]
+  expenses    Expense[]
+  shifts      Shift[]
+  payments    Payment[]
+  priceLogs   PriceHistory[]
+  movements   StockMovement[]
+  opnames     StockOpname[]
+  returns     ReturnDoc[]
+  auditLogs   AuditLog[]
+
+  @@map("users")
+}
+
+// ========================= MASTER BARANG =========================
+
+model Category {
+  id        Int       @id @default(autoincrement())
+  nama      String
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  products Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id            Int       @id @default(autoincrement())
+  sku           String    @unique
+  barcode       String?   @unique
+  nama          String
+  categoryId    Int?      @map("category_id")
+  baseUnit      String    @map("base_unit") // satuan dasar penyimpanan stok (pcs/batang)
+  // Harga jual per BASE UNIT (satuan besar = harga_base x faktor konversi)
+  hargaAplikator Decimal  @default(0) @map("harga_aplikator") @db.Decimal(15, 2)
+  hargaReseller  Decimal  @default(0) @map("harga_reseller") @db.Decimal(15, 2)
+  hargaUmum      Decimal  @default(0) @map("harga_umum") @db.Decimal(15, 2)
+  stokMinimum    Decimal  @default(0) @map("stok_minimum") @db.Decimal(15, 3)
+  aktif          Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  category     Category?       @relation(fields: [categoryId], references: [id])
+  units        ProductUnit[]
+  batches      StockBatch[]
+  movements    StockMovement[]
+  purchaseItems PurchaseItem[]
+  saleItems    SaleItem[]
+  priceHistory PriceHistory[]
+  opnameItems  StockOpnameItem[]
+
+  @@index([nama])
+  @@index([categoryId])
+  @@map("products")
+}
+
+model ProductUnit {
+  id         Int     @id @default(autoincrement())
+  productId  Int     @map("product_id")
+  namaSatuan String  @map("nama_satuan") // pcs, dus, batang, ikat
+  faktorKeBase Decimal @map("faktor_ke_base") @db.Decimal(15, 3) // base unit = faktor 1
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, namaSatuan])
+  @@map("product_units")
+}
+
+model PriceHistory {
+  id        Int       @id @default(autoincrement())
+  productId Int       @map("product_id")
+  tier      PriceTier
+  hargaLama Decimal   @map("harga_lama") @db.Decimal(15, 2)
+  hargaBaru Decimal   @map("harga_baru") @db.Decimal(15, 2)
+  userId    Int?      @map("user_id")
+  waktu     DateTime  @default(now())
+
+  product Product @relation(fields: [productId], references: [id])
+  user    User?   @relation(fields: [userId], references: [id])
+
+  @@index([productId])
+  @@map("price_history")
+}
+
+// ========================= MITRA =========================
+
+model Supplier {
+  id        Int       @id @default(autoincrement())
+  nama      String
+  telp      String?
+  alamat    String?   @db.Text
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  purchases Purchase[]
+
+  @@map("suppliers")
+}
+
+model Customer {
+  id         Int       @id @default(autoincrement())
+  nama       String
+  telp       String?
+  alamat     String?   @db.Text
+  tipeHarga  PriceTier @default(umum) @map("tipe_harga")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  sales Sale[]
+
+  @@map("customers")
+}
+
+// ========================= PEMBELIAN & STOK =========================
+
+model Purchase {
+  id          Int           @id @default(autoincrement())
+  noPembelian String        @unique @map("no_pembelian")
+  supplierId  Int?          @map("supplier_id")
+  tanggal     DateTime      @default(now())
+  subtotal    Decimal       @default(0) @db.Decimal(15, 2)
+  diskon      Decimal       @default(0) @db.Decimal(15, 2)
+  total       Decimal       @default(0) @db.Decimal(15, 2)
+  statusBayar PaymentStatus @default(lunas) @map("status_bayar")
+  jatuhTempo  DateTime?     @map("jatuh_tempo")
+  userId      Int?          @map("user_id")
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  supplier Supplier?      @relation(fields: [supplierId], references: [id])
+  user     User?          @relation(fields: [userId], references: [id])
+  items    PurchaseItem[]
+
+  @@index([tanggal])
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id          Int     @id @default(autoincrement())
+  purchaseId  Int     @map("purchase_id")
+  productId   Int     @map("product_id")
+  unit        String  // satuan input (dus/pcs/batang)
+  qtyInput    Decimal @map("qty_input") @db.Decimal(15, 3)
+  qtyBase     Decimal @map("qty_base") @db.Decimal(15, 3)
+  modalPerBase Decimal @map("modal_per_base") @db.Decimal(15, 2)
+
+  purchase Purchase     @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  product  Product      @relation(fields: [productId], references: [id])
+  batch    StockBatch?
+
+  @@map("purchase_items")
+}
+
+// Inti FIFO: setiap pembelian -> satu batch stok dengan modal sendiri
+model StockBatch {
+  id             Int      @id @default(autoincrement())
+  productId      Int      @map("product_id")
+  purchaseItemId Int?     @unique @map("purchase_item_id")
+  qtyAwalBase    Decimal  @map("qty_awal_base") @db.Decimal(15, 3)
+  qtySisaBase    Decimal  @map("qty_sisa_base") @db.Decimal(15, 3)
+  modalPerBase   Decimal  @map("modal_per_base") @db.Decimal(15, 2)
+  tanggalMasuk   DateTime @default(now()) @map("tanggal_masuk")
+  keterangan     String?  @db.Text // mis. "penyesuaian opname"
+
+  product      Product        @relation(fields: [productId], references: [id])
+  purchaseItem PurchaseItem?  @relation(fields: [purchaseItemId], references: [id])
+  saleItemCosts SaleItemCost[]
+
+  @@index([productId, tanggalMasuk]) // FIFO: ambil batch tertua dulu
+  @@map("stock_batches")
+}
+
+// Ledger stok: satu sumber kebenaran, bisa diaudit
+model StockMovement {
+  id        Int          @id @default(autoincrement())
+  productId Int          @map("product_id")
+  tipe      MovementType
+  qtyBase   Decimal      @map("qty_base") @db.Decimal(15, 3) // + masuk / - keluar
+  refTipe   RefType?     @map("ref_tipe")
+  refId     Int?         @map("ref_id")
+  keterangan String?     @db.Text
+  userId    Int?         @map("user_id")
+  waktu     DateTime     @default(now())
+
+  product Product @relation(fields: [productId], references: [id])
+  user    User?   @relation(fields: [userId], references: [id])
+
+  @@index([productId, waktu])
+  @@map("stock_movements")
+}
+
+// ========================= PENJUALAN =========================
+
+model Sale {
+  id          Int           @id @default(autoincrement())
+  noNota      String        @unique @map("no_nota")
+  customerId  Int?          @map("customer_id")
+  tipeHarga   PriceTier     @default(umum) @map("tipe_harga")
+  tanggal     DateTime      @default(now())
+  subtotal    Decimal       @default(0) @db.Decimal(15, 2)
+  diskon      Decimal       @default(0) @db.Decimal(15, 2)
+  ppn         Decimal       @default(0) @db.Decimal(15, 2) // fitur off sampai toko PKP
+  total       Decimal       @default(0) @db.Decimal(15, 2)
+  statusBayar PaymentStatus @default(lunas) @map("status_bayar")
+  jatuhTempo  DateTime?     @map("jatuh_tempo")
+  userId      Int?          @map("user_id")
+  shiftId     Int?          @map("shift_id")
+  isVoid      Boolean       @default(false) @map("is_void")
+  voidAlasan  String?       @map("void_alasan") @db.Text
+  voidBy      Int?          @map("void_by")
+  voidAt      DateTime?     @map("void_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  customer Customer?  @relation(fields: [customerId], references: [id])
+  user     User?      @relation(fields: [userId], references: [id])
+  shift    Shift?     @relation(fields: [shiftId], references: [id])
+  items    SaleItem[]
+
+  @@index([tanggal])
+  @@index([userId])
+  @@map("sales")
+}
+
+model SaleItem {
+  id             Int     @id @default(autoincrement())
+  saleId         Int     @map("sale_id")
+  productId      Int     @map("product_id")
+  unit           String  // satuan jual (dus/pcs/batang)
+  qtyInput       Decimal @map("qty_input") @db.Decimal(15, 3)
+  qtyBase        Decimal @map("qty_base") @db.Decimal(15, 3)
+  hargaJualPerBase Decimal @map("harga_jual_per_base") @db.Decimal(15, 2)
+  diskonItem     Decimal @default(0) @map("diskon_item") @db.Decimal(15, 2)
+  hppPerBase     Decimal @map("hpp_per_base") @db.Decimal(15, 2) // hasil FIFO (rata-rata batch terpakai)
+  subtotal       Decimal @db.Decimal(15, 2)
+
+  sale    Sale           @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product Product        @relation(fields: [productId], references: [id])
+  costs   SaleItemCost[]
+
+  @@map("sale_items")
+}
+
+// Rincian batch terpakai per item -> laba presisi & dasar pembalikan saat void/retur
+model SaleItemCost {
+  id           Int     @id @default(autoincrement())
+  saleItemId   Int     @map("sale_item_id")
+  stockBatchId Int     @map("stock_batch_id")
+  qtyBase      Decimal @map("qty_base") @db.Decimal(15, 3)
+  modalPerBase Decimal @map("modal_per_base") @db.Decimal(15, 2)
+
+  saleItem SaleItem   @relation(fields: [saleItemId], references: [id], onDelete: Cascade)
+  batch    StockBatch @relation(fields: [stockBatchId], references: [id])
+
+  @@map("sale_item_costs")
+}
+
+// Pembayaran (mendukung DP + pelunasan bertahap) untuk sale & purchase
+model Payment {
+  id        Int           @id @default(autoincrement())
+  refTipe   RefType       @map("ref_tipe") // sale | purchase
+  refId     Int           @map("ref_id")
+  tanggal   DateTime      @default(now())
+  jumlah    Decimal       @db.Decimal(15, 2)
+  metode    PaymentMethod
+  tujuan    String?       // bank/nomor rekening untuk transfer
+  keterangan String?      @db.Text
+  userId    Int?          @map("user_id")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([refTipe, refId])
+  @@map("payments")
+}
+
+// ========================= PENGELUARAN =========================
+
+model Expense {
+  id         Int         @id @default(autoincrement())
+  kategori   String
+  keterangan String?     @db.Text
+  jumlah     Decimal     @db.Decimal(15, 2)
+  tanggal    DateTime    @default(now())
+  tipe       ExpenseType @default(harian)
+  userId     Int?        @map("user_id")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([tanggal])
+  @@map("expenses")
+}
+
+// ========================= STOK OPNAME =========================
+
+model StockOpname {
+  id        Int               @id @default(autoincrement())
+  tanggal   DateTime          @default(now())
+  keterangan String?          @db.Text
+  userId    Int?              @map("user_id")
+  createdAt DateTime          @default(now()) @map("created_at")
+
+  user  User?             @relation(fields: [userId], references: [id])
+  items StockOpnameItem[]
+
+  @@map("stock_opname")
+}
+
+model StockOpnameItem {
+  id         Int     @id @default(autoincrement())
+  opnameId   Int     @map("opname_id")
+  productId  Int     @map("product_id")
+  stokSistem Decimal @map("stok_sistem") @db.Decimal(15, 3)
+  stokFisik  Decimal @map("stok_fisik") @db.Decimal(15, 3)
+  selisih    Decimal @db.Decimal(15, 3)
+
+  opname  StockOpname @relation(fields: [opnameId], references: [id], onDelete: Cascade)
+  product Product     @relation(fields: [productId], references: [id])
+
+  @@map("stock_opname_items")
+}
+
+// ========================= SHIFT KASIR =========================
+
+model Shift {
+  id               Int       @id @default(autoincrement())
+  userId           Int       @map("user_id")
+  buka             DateTime  @default(now())
+  tutup            DateTime?
+  saldoAwal        Decimal   @default(0) @map("saldo_awal") @db.Decimal(15, 2)
+  totalCash        Decimal   @default(0) @map("total_cash") @db.Decimal(15, 2)
+  totalTransfer    Decimal   @default(0) @map("total_transfer") @db.Decimal(15, 2)
+  totalPengeluaran Decimal   @default(0) @map("total_pengeluaran") @db.Decimal(15, 2)
+  saldoAkhirSistem Decimal   @default(0) @map("saldo_akhir_sistem") @db.Decimal(15, 2)
+  saldoAkhirFisik  Decimal?  @map("saldo_akhir_fisik") @db.Decimal(15, 2)
+  selisih          Decimal   @default(0) @db.Decimal(15, 2)
+
+  user  User   @relation(fields: [userId], references: [id])
+  sales Sale[]
+
+  @@map("shifts")
+}
+
+// ========================= RETUR =========================
+
+model ReturnDoc {
+  id        Int        @id @default(autoincrement())
+  tipe      ReturnType // jual | beli
+  refId     Int        @map("ref_id") // sale_id atau purchase_id
+  tanggal   DateTime   @default(now())
+  total     Decimal    @default(0) @db.Decimal(15, 2)
+  keterangan String?   @db.Text
+  userId    Int?       @map("user_id")
+
+  user  User?        @relation(fields: [userId], references: [id])
+  items ReturnItem[]
+
+  @@map("returns")
+}
+
+model ReturnItem {
+  id         Int     @id @default(autoincrement())
+  returnId   Int     @map("return_id")
+  refItemId  Int     @map("ref_item_id") // sale_item_id atau purchase_item_id
+  productId  Int     @map("product_id")
+  qtyBase    Decimal @map("qty_base") @db.Decimal(15, 3)
+  modalPerBase Decimal @map("modal_per_base") @db.Decimal(15, 2)
+
+  retur ReturnDoc @relation(fields: [returnId], references: [id], onDelete: Cascade)
+
+  @@map("return_items")
+}
+
+// ========================= AUDIT =========================
+
+model AuditLog {
+  id      Int      @id @default(autoincrement())
+  userId  Int?     @map("user_id")
+  aksi    String
+  entitas String?
+  detail  String?  @db.Text
+  waktu   DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([waktu])
+  @@map("audit_logs")
+}
