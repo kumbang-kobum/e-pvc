@@ -18,6 +18,7 @@ import { returnsRouter } from "./routes/returns.js";
 import { reportsRouter } from "./routes/reports.js";
 import { backupRouter } from "./routes/backup.js";
 import { startBackupScheduler } from "./lib/backup.js";
+import { applyMigrations, seedDefaults } from "./lib/bootstrap.js";
 import { ApiError } from "./lib/http.js";
 import { ZodError } from "zod";
 import { Prisma } from "@prisma/client";
@@ -81,7 +82,21 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: "Terjadi kesalahan server" });
 });
 
-app.listen(config.port, () => {
-  console.log(`✔ Backend E-pvc berjalan di http://localhost:${config.port}`);
-  startBackupScheduler();
+async function main() {
+  // Produksi (aplikasi terpasang di PC toko): pastikan skema DB + data awal ada,
+  // agar aplikasi langsung jalan hanya dengan membukanya — tanpa perintah manual.
+  if (process.env.NODE_ENV === "production") {
+    applyMigrations();
+    await seedDefaults();
+  }
+
+  app.listen(config.port, () => {
+    console.log(`✔ Backend E-pvc berjalan di http://localhost:${config.port}`);
+    startBackupScheduler();
+  });
+}
+
+main().catch((e) => {
+  console.error("Gagal memulai backend:", e);
+  process.exit(1);
 });

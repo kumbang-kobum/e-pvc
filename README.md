@@ -9,6 +9,7 @@
 
 Aplikasi **Point of Sale (POS) + inventori** untuk toko penjualan **plafon PVC & rangka baja**.
 Berjalan sebagai aplikasi **desktop Windows** (web app dibungkus Electron) dengan database **MariaDB**.
+Didesain **single-laptop**: satu laptop menjadi server (database + backend) sekaligus client (aplikasi kasir).
 
 Dibuat untuk operasional toko sehari-hari: penjualan di kasir, pencatatan stok akurat (FIFO),
 harga jual bertingkat, dan laporan laba.
@@ -18,6 +19,7 @@ harga jual bertingkat, dan laporan laba.
 - [Fitur Utama](#fitur-utama)
 - [Teknologi](#teknologi)
 - [Struktur](#struktur)
+- [Instalasi produksi (PC/laptop toko)](#instalasi-produksi-pclaptop-toko)
 - [Menjalankan (development)](#menjalankan-development)
 - [Konfigurasi](#konfigurasi)
 - [Build installer Windows (.exe)](#build-installer-windows-exe)
@@ -61,12 +63,29 @@ Prinsip inti: semua uang `DECIMAL`, transaksi penjualan **atomik** dengan *row-l
 backend/    API (Express + TypeScript + Prisma + MariaDB)
 frontend/   UI (React + Vite + TailwindCSS)
 desktop/    Pembungkus desktop (Electron + electron-builder)
+scripts/    Skrip bantu (pembuat .env untuk start-windows.bat)
 docs/       PRD & panduan deployment
 ```
 
+## Instalasi produksi (PC/laptop toko)
+
+Untuk pengguna akhir — **tanpa Node.js, tanpa command prompt**. Satu laptop jadi server + client:
+
+1. **Pasang MariaDB** (sekali) — installer MSI dari [mariadb.org](https://mariadb.org/download/),
+   centang *Install as service* agar otomatis hidup tiap laptop dinyalakan. Catat password root.
+2. **Jalankan `n2N E-pvc Setup x.y.z.exe`** → ikuti wizard → shortcut muncul di Desktop.
+3. **Buka aplikasinya.** Run pertama: `config.json` terbuka otomatis di Notepad —
+   ganti `PASSWORD_ANDA` dengan password root MariaDB (sekali saja), simpan, tutup.
+4. **Buka lagi aplikasinya.** Backend otomatis **membuat database `n2n-pvc` + seluruh
+   tabel** (migrasi Prisma) + **user admin** + pengaturan awal toko.
+5. Login **admin / admin123** → ganti password → siap dipakai.
+
+Selanjutnya **cukup klik ikon aplikasi** — selama MariaDB berjalan (service), semuanya otomatis.
+Panduan lengkap + troubleshooting: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
 ## Menjalankan (development)
 
-**Prasyarat:** Node.js 20+, dan MariaDB berjalan di `localhost:3306` dengan database `n2n-pvc`.
+**Prasyarat:** Node.js 20+, dan MariaDB berjalan di `localhost:3306`.
 
 ### Cara cepat di Windows — satu klik
 
@@ -75,8 +94,8 @@ Cukup **double-click `start-windows.bat`** (selama MariaDB berjalan). Skrip ini 
 1. Install dependensi backend & frontend (hanya saat belum ada).
 2. Run pertama: tanya user & password MariaDB → `backend\.env` dibuat otomatis
    (password di-URL-encode, `JWT_SECRET` acak — tanpa edit file manual).
-3. Buat database `n2n-pvc` + skema (`prisma migrate deploy`) dan data awal
-   (settings toko + user admin) — idempoten, aman diulang tiap start.
+3. Generate Prisma Client, buat database `n2n-pvc` + skema (`prisma migrate deploy`),
+   dan data awal (settings toko + user admin) — idempoten, aman diulang tiap start.
 4. Jalankan backend & frontend di 2 jendela, tunggu server siap, lalu buka
    browser ke http://localhost:5173.
 
@@ -99,6 +118,7 @@ Butuh 2 terminal (desktop/Electron opsional):
 cd backend
 npm install
 cp .env.example .env          # lalu isi DATABASE_URL (lihat Konfigurasi)
+npx prisma generate           # generate Prisma Client
 npx prisma migrate dev        # buat skema (sekali di awal)
 npm run seed                  # settings toko + user admin
 npm run dev                   # http://localhost:3100
@@ -126,7 +146,9 @@ Di browser cukup buka **http://localhost:5173**. Backend & frontend harus jalan 
 ## Konfigurasi
 
 - **Development:** backend membaca `backend/.env` (lihat [`backend/.env.example`](backend/.env.example)).
-- **Produksi (terpasang):** aplikasi membaca `config.json` di `%AppData%\n2N E-pvc\`.
+  Dibuat otomatis oleh `start-windows.bat` saat run pertama.
+- **Produksi (terpasang):** aplikasi membaca `config.json` di `%AppData%\n2N E-pvc\`
+  (`C:\Users\<nama>\AppData\Roaming\n2N E-pvc\config.json`) — dibuat otomatis saat pertama jalan.
 
 Password MariaDB dengan karakter spesial **harus di-URL-encode** di `DATABASE_URL` (mis. `@` → `%40`):
 
@@ -136,13 +158,17 @@ DATABASE_URL="mysql://root:%40Passwordku@localhost:3306/n2n-pvc"
 
 ## Build installer Windows (.exe)
 
-Ringkas (jalankan di Windows untuk hasil paling andal):
+> **Wajib build di Windows.** Backend produksi menjalankan migrasi Prisma otomatis saat start,
+> dan engine Prisma yang terbundel mengikuti OS tempat `npm install` dijalankan.
 
 ```bash
-cd backend  && npm install && npx prisma migrate deploy && npm run seed && npm run build
+cd backend  && npm install && npx prisma generate && npm run build
 cd ../frontend && npm install && npm run build
 cd ../desktop  && npm install && npm run dist      # → desktop/release/*.exe
 ```
+
+Tidak perlu `migrate deploy`/`seed` saat build — **aplikasi ter-install membuat database,
+skema, dan user admin sendiri saat pertama dijalankan** di PC toko.
 
 Langkah lengkap, opsi MariaDB, dan konfigurasi runtime ada di [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
@@ -152,8 +178,9 @@ Langkah lengkap, opsi MariaDB, dan konfigurasi runtime ada di [`docs/DEPLOYMENT.
 
 | Lokasi | Perintah | Fungsi |
 |---|---|---|
+| (root) | `start-windows.bat` | **Dev all-in-one**: install + setup DB + jalankan backend & frontend |
 | backend | `npm run dev` | Jalankan API (hot-reload) |
-| backend | `npm run seed` | Seed settings + admin |
+| backend | `npm run seed` | Seed settings + admin (idempoten) |
 | backend | `npm run reset` | **Reset DB** (drop + migrasi + seed) — hapus semua data |
 | backend | `npm run build` | Kompilasi ke `dist/` |
 | frontend | `npm run build` | Build UI ke `dist/` |
@@ -167,4 +194,4 @@ Langkah lengkap, opsi MariaDB, dan konfigurasi runtime ada di [`docs/DEPLOYMENT.
 ## Status
 
 Semua fungsi inti **selesai & teruji** (Fase 0–5). Menjelang rilis **v1**, build & uji `.exe` dilakukan di Windows.
-Sebelum rilis, jalankan `npm run reset` di `backend/` untuk membersihkan data contoh pengujian.
+Backend kini **otomatis migrasi + seed saat start produksi** — PC toko tidak butuh perintah manual.

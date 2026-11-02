@@ -1,7 +1,8 @@
-const { app, BrowserWindow, dialog } = require("electron");
+const { app, BrowserWindow, dialog, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
+const crypto = require("crypto");
 const { spawn } = require("child_process");
 
 const isDev = !!process.env.ELECTRON_DEV;
@@ -10,12 +11,15 @@ const BASE_URL = `http://localhost:${PORT}`;
 
 let backendProc = null;
 
+/** Placeholder yang wajib diganti user saat instalasi — jangan taruh password asli di sini. */
+const PASSWORD_PLACEHOLDER = "PASSWORD_ANDA";
+
 /** Lokasi config DB di folder data user (bisa diedit admin tanpa rebuild). */
 function loadDbConfig() {
   const cfgPath = path.join(app.getPath("userData"), "config.json");
   const fallback = {
-    DATABASE_URL: "mysql://root:%40Alnaira1729@localhost:3306/n2n-pvc",
-    JWT_SECRET: "ganti-secret-ini-di-produksi",
+    DATABASE_URL: `mysql://root:${PASSWORD_PLACEHOLDER}@localhost:3306/n2n-pvc`,
+    JWT_SECRET: crypto.randomBytes(32).toString("hex"), // acak per instalasi
   };
   try {
     if (fs.existsSync(cfgPath)) return { ...fallback, ...JSON.parse(fs.readFileSync(cfgPath, "utf8")) };
@@ -24,6 +28,32 @@ function loadDbConfig() {
     console.error("Gagal baca config.json:", e);
   }
   return fallback;
+}
+
+/**
+ * Run pertama: config.json masih berisi placeholder password.
+ * Pandu user mengisinya (buka otomatis di editor) lalu tutup aplikasi.
+ * @returns true bila masih placeholder (aplikasi jangan lanjut).
+ */
+function needsFirstRunConfig() {
+  const cfg = loadDbConfig();
+  if (!cfg.DATABASE_URL.includes(PASSWORD_PLACEHOLDER)) return false;
+
+  const cfgPath = path.join(app.getPath("userData"), "config.json");
+  dialog.showMessageBoxSync({
+    type: "info",
+    title: "Pengaturan pertama — n2N E-pvc",
+    message: "Satu langkah lagi: isi password MariaDB.",
+    detail:
+      "File pengaturan akan terbuka otomatis setelah ini.\n\n" +
+      `1. Pada baris DATABASE_URL, ganti tulisan ${PASSWORD_PLACEHOLDER} dengan password root MariaDB Anda.\n` +
+      "   (Karakter spesial harus di-URL-encode, mis. @ menjadi %40)\n" +
+      "2. Simpan file (Ctrl+S) lalu tutup.\n" +
+      "3. Buka lagi aplikasi n2N E-pvc.\n\n" +
+      `Lokasi file: ${cfgPath}`,
+  });
+  shell.openPath(cfgPath);
+  return true;
 }
 
 /** Jalankan backend (produksi) memakai Node bawaan Electron. */
@@ -60,14 +90,30 @@ function waitForBackend(win, tries = 0) {
     .on("error", () => retry(win, tries));
 }
 function retry(win, tries) {
-  if (tries > 60) {
-    dialog.showErrorBox("Timeout", "Backend tidak merespons. Pastikan MariaDB berjalan.");
+  // 120 × 500ms = 60 detik — run pertama di PC toko perlu waktu ekstra
+  // karena backend membuat skema database (migrasi) lebih dulu.
+  if (tries > 120) {
+    const cfgPath = path.join(app.getPath("userData"), "config.json");
+    dialog.showErrorBox(
+      "Tidak bisa terhubung ke database",
+      "Backend tidak merespons. Periksa:\n\n" +
+        "1. MariaDB berjalan (cek Services Windows).\n" +
+        `2. User/password MariaDB benar di:\n   ${cfgPath}\n` +
+        "   (karakter spesial password harus di-URL-encode, mis. @ menjadi %40)\n\n" +
+        "Setelah diperbaiki, tutup lalu buka lagi aplikasi ini."
+    );
     return;
   }
   setTimeout(() => waitForBackend(win, tries + 1), 500);
 }
 
 function createWindow() {
+  // Run pertama produksi: pandu isi password dulu, jangan buka jendela kosong.
+  if (!isDev && needsFirstRunConfig()) {
+    app.quit();
+    return;
+  }
+
   const win = new BrowserWindow({
     width: 1280,
     height: 800,

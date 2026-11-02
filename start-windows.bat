@@ -57,13 +57,13 @@ if errorlevel 1 (
 :: ---------- Skema database + data awal (idempoten, aman diulang) ----------
 cd /d "%~dp0backend"
 echo.
+echo [db] Menyiapkan Prisma Client...
+call npx prisma generate
+if errorlevel 1 goto :gagal_db
+
 echo [db] Menyiapkan skema database...
 call npx prisma migrate deploy
 if errorlevel 1 goto :gagal_db
-
-if exist "node_modules\.prisma\client" goto :client_ok
-call npx prisma generate
-:client_ok
 
 echo [db] Memastikan data awal (settings + admin)...
 call npm run seed
