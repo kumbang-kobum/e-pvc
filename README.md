@@ -68,6 +68,26 @@ docs/       PRD & panduan deployment
 
 **Prasyarat:** Node.js 20+, dan MariaDB berjalan di `localhost:3306` dengan database `n2n-pvc`.
 
+### Cara cepat di Windows — satu klik
+
+Cukup **double-click `start-windows.bat`** (selama MariaDB berjalan). Skrip ini otomatis:
+
+1. Install dependensi backend & frontend (hanya saat belum ada).
+2. Run pertama: tanya user & password MariaDB → `backend\.env` dibuat otomatis
+   (password di-URL-encode, `JWT_SECRET` acak — tanpa edit file manual).
+3. Buat database `n2n-pvc` + skema (`prisma migrate deploy`) dan data awal
+   (settings toko + user admin) — idempoten, aman diulang tiap start.
+4. Jalankan backend & frontend di 2 jendela, tunggu server siap, lalu buka
+   browser ke http://localhost:5173.
+
+Run berikutnya tinggal double-click lagi — tidak ada yang perlu diaktifkan.
+Salah isi password? Hapus `backend\.env` lalu jalankan ulang skripnya.
+
+> **Autostart saat PC nyala (opsional):** tekan `Win+R`, ketik `shell:startup`,
+> lalu taruh shortcut `start-windows.bat` di folder tersebut.
+
+### Cara manual (semua OS)
+
 ```sql
 CREATE DATABASE `n2n-pvc` CHARACTER SET utf8mb4;
 ```
