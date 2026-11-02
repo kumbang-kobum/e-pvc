@@ -81,6 +81,11 @@ Untuk pengguna akhir — **tanpa Node.js, tanpa command prompt**. Satu laptop ja
 5. Login **admin / admin123** → ganti password → siap dipakai.
 
 Selanjutnya **cukup klik ikon aplikasi** — selama MariaDB berjalan (service), semuanya otomatis.
+
+> **Salah password / layar putih?** Hapus `config.json` di `%AppData%\n2N E-pvc`
+> (build lama: `%AppData%\e-pvc-desktop`) → buka aplikasi → isi password lewat Notepad
+> yang terbuka otomatis → buka lagi → tunggu ±60 detik. Rinci: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) §B.5.
+
 Panduan lengkap + troubleshooting: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ## Menjalankan (development)
@@ -149,6 +154,8 @@ Di browser cukup buka **http://localhost:5173**. Backend & frontend harus jalan 
   Dibuat otomatis oleh `start-windows.bat` saat run pertama.
 - **Produksi (terpasang):** aplikasi membaca `config.json` di `%AppData%\n2N E-pvc\`
   (`C:\Users\<nama>\AppData\Roaming\n2N E-pvc\config.json`) — dibuat otomatis saat pertama jalan.
+  Bila gagal konek, **dialog error menampilkan path config yang benar** (build lama memakai
+  `%AppData%\e-pvc-desktop\`). Troubleshooting lengkap: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) §B.5.
 
 Password MariaDB dengan karakter spesial **harus di-URL-encode** di `DATABASE_URL` (mis. `@` → `%40`):
 

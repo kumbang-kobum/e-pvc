@@ -90,6 +90,10 @@ klik ikon aplikasi di Desktop.
 
 > Lokasi file bila perlu diedit lagi: `C:\Users\<nama>\AppData\Roaming\n2N E-pvc\config.json`
 > (`JWT_SECRET` dibuat acak per instalasi secara otomatis — tidak perlu diubah.)
+>
+> **Catatan build lama:** installer yang dibangun sebelum `productName` ditambahkan di
+> `desktop/package.json` menyimpan config di `%AppData%\e-pvc-desktop\` (bukan `n2N E-pvc`).
+> Patokan paling pasti: **dialog error aplikasi selalu menampilkan path config yang benar**.
 
 ### B.4 Pemakaian harian
 
@@ -103,8 +107,22 @@ klik ikon aplikasi di Desktop.
 
 | Gejala | Penyebab & solusi |
 |---|---|
-| Kotak pesan "Tidak bisa terhubung ke database" | MariaDB tidak jalan → buka **Services** (Win+R → `services.msc`), cari **MariaDB**, klik **Start** dan set **Startup type: Automatic**. Atau password salah → edit `config.json` (lihat B.3). |
-| Lupa lokasi config | `Win+R` → ketik `%AppData%\n2N E-pvc` → Enter. |
+| Kotak pesan "Tidak bisa terhubung ke database" | MariaDB tidak jalan → buka **Services** (Win+R → `services.msc`), cari **MariaDB**, klik **Start** dan set **Startup type: Automatic**. Atau password salah → edit `config.json` **pada path yang tertulis di dialog tersebut** (lihat B.3). |
+| Layar putih / dialog "Pengaturan pertama" tidak muncul padahal instalasi baru | `config.json` lama (dari versi/percobaan sebelumnya) masih tertinggal — uninstall tidak menghapusnya. Hapus `config.json` di folder data (lihat catatan B.3), lalu buka lagi aplikasinya → dialog pengaturan pertama akan muncul. |
+| Lupa lokasi config | `Win+R` → ketik `%AppData%\n2N E-pvc` → Enter (build lama: `%AppData%\e-pvc-desktop`). |
+
+**Reset konfigurasi database** — cara paling ampuh bila salah password / layar putih / bingung.
+Teruji menyelesaikan kasus nyata; lakukan berurutan:
+
+1. Tutup aplikasi n2N E-pvc.
+2. `Win+R` → ketik `%AppData%\n2N E-pvc` → Enter (build lama: `%AppData%\e-pvc-desktop`).
+3. **Hapus `config.json`** di folder itu. (Data penjualan AMAN — semuanya ada di database
+   MariaDB, bukan di file ini.)
+4. Buka aplikasi → dialog "Pengaturan pertama" muncul dan **Notepad terbuka otomatis** →
+   ganti `PASSWORD_ANDA` dengan password root MariaDB (karakter spesial di-URL-encode,
+   mis. `@` → `%40`) → simpan (Ctrl+S), tutup Notepad.
+5. Buka lagi aplikasinya → **tunggu hingga ±60 detik** (run pertama membuat seluruh tabel) →
+   layar login tampil.
 | Aplikasi putih/kosong lama | Run pertama membuat seluruh tabel — tunggu hingga ±60 detik. |
 | Pindah laptop / instal ulang | Pasang MariaDB + aplikasi seperti biasa, lalu **Pengaturan → Backup → Pulihkan** dari file backup lama. |
 
